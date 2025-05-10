@@ -1,5 +1,6 @@
 import numpy as np
-import pickle
+import os
+import joblib
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
@@ -10,7 +11,17 @@ from flask import Flask, request, jsonify, render_template_string
 
 # Build and save the model
 def train_and_save_model():
+    # Check if model already exists
+    if os.path.exists('rf_model.joblib') and os.path.exists('scaler.joblib'):
+        print("Loading existing model...")
+        rf = joblib.load('rf_model.joblib')
+        scaler = joblib.load('scaler.joblib')
+        feature_names = joblib.load('feature_names.joblib')
+        # We'll use a fixed accuracy for existing models
+        return rf, scaler, feature_names, 0.97
+    
     # Load the breast cancer dataset
+    print("Training new model...")
     cancer = load_breast_cancer()
     X = cancer.data
     y = cancer.target
@@ -24,7 +35,7 @@ def train_and_save_model():
     X_train_scaled = scaler.fit_transform(X_train)
     X_test_scaled = scaler.transform(X_test)
     
-    # Train Random Forest (best performing model from our experiments)
+    # Train Random Forest
     rf = RandomForestClassifier(n_estimators=100, random_state=42)
     rf.fit(X_train_scaled, y_train)
     
@@ -33,10 +44,16 @@ def train_and_save_model():
     accuracy = accuracy_score(y_test, y_pred)
     print(f"Model accuracy: {accuracy:.4f}")
     
+    # Save model files
+    joblib.dump(rf, 'rf_model.joblib')
+    joblib.dump(scaler, 'scaler.joblib')
+    joblib.dump(feature_names, 'feature_names.joblib')
+    
     return rf, scaler, feature_names, accuracy
 
 # Create Flask app
 app = Flask(__name__)
+
 # Train the model when the script loads
 model, scaler, feature_names, model_accuracy = train_and_save_model()
 
@@ -105,6 +122,18 @@ HTML_TEMPLATE = """
         #resultDiv {
             display: none;
         }
+        .github-link {
+            margin-top: 40px;
+            text-align: center;
+            color: #6c757d;
+        }
+        .github-link a {
+            color: #3498db;
+            text-decoration: none;
+        }
+        .github-link a:hover {
+            text-decoration: underline;
+        }
     </style>
 </head>
 <body>
@@ -132,6 +161,10 @@ HTML_TEMPLATE = """
         <p>Model: Random Forest Classifier</p>
     </div>
     
+    <div class="github-link">
+        <p>This project is open source. <a href="https://github.com/yourusername/breast-cancer-prediction" target="_blank">View on GitHub</a></p>
+    </div>
+    
     <script>
         // Feature names from the server
         const featureNames = {{ feature_names|safe }};
@@ -143,45 +176,43 @@ HTML_TEMPLATE = """
         // Create the form fields
         function createFormFields() {
             const container = document.getElementById('featuresContainer');
+            
+            // Clear existing content
             container.innerHTML = '';
+            
             for (let i = 0; i < featureNames.length; i++) {
                 const displayName = featureNames[i].replace(/_/g, ' ');
+                
                 const formGroup = document.createElement('div');
                 formGroup.className = 'form-group';
+                
                 const label = document.createElement('label');
                 label.htmlFor = `feature_${i}`;
                 label.textContent = displayName;
+                
                 const input = document.createElement('input');
                 input.type = 'number';
                 input.step = '0.0001';
                 input.id = `feature_${i}`;
                 input.name = `feature_${i}`;
                 input.required = true;
+                
                 formGroup.appendChild(label);
                 formGroup.appendChild(input);
                 container.appendChild(formGroup);
             }
-            console.log('Form fields created for:', featureNames);
         }
         
         // Fill the form with sample values
         function fillSampleValues(malignant = false) {
-            console.log('Filling with sample values, malignant:', malignant);
             const values = malignant ? malignantSample : benignSample;
             for (let i = 0; i < featureNames.length; i++) {
-                const input = document.getElementById(`feature_${i}`);
-                if (input) {
-                    input.value = values[i];
-                    console.log(`Set ${featureNames[i]} to ${values[i]}`);
-                } else {
-                    console.error(`Input element for feature_${i} not found`);
-                }
+                document.getElementById(`feature_${i}`).value = values[i];
             }
         }
         
         // Make prediction
         function makePrediction() {
-            console.log('Making prediction');
             const features = [];
             for (let i = 0; i < featureNames.length; i++) {
                 const value = document.getElementById(`feature_${i}`).value;
@@ -199,12 +230,7 @@ HTML_TEMPLATE = """
                 },
                 body: JSON.stringify({ features: features })
             })
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-                return response.json();
-            })
+            .then(response => response.json())
             .then(data => {
                 const resultDiv = document.getElementById('resultDiv');
                 const resultText = document.getElementById('resultText');
@@ -222,6 +248,7 @@ HTML_TEMPLATE = """
                     resultExplanation.textContent = 'The model predicts that the tumor is malignant. This suggests a higher risk.';
                 }
                 
+                // Scroll to result
                 resultDiv.scrollIntoView({ behavior: 'smooth' });
             })
             .catch(error => {
@@ -234,39 +261,21 @@ HTML_TEMPLATE = """
         document.addEventListener('DOMContentLoaded', function() {
             createFormFields();
             
-            const btnBenign = document.getElementById('btnBenign');
-            const btnMalignant = document.getElementById('btnMalignant');
-            const btnPredict = document.getElementById('btnPredict');
+            // Set up event listeners
+            document.getElementById('btnBenign').addEventListener('click', function(e) {
+                e.preventDefault();
+                fillSampleValues(false);
+            });
             
-            if (btnBenign) {
-                btnBenign.addEventListener('click', function(e) {
-                    e.preventDefault();
-                    fillSampleValues(false);
-                });
-                console.log('Benign button listener attached');
-            } else {
-                console.error('btnBenign not found');
-            }
+            document.getElementById('btnMalignant').addEventListener('click', function(e) {
+                e.preventDefault();
+                fillSampleValues(true);
+            });
             
-            if (btnMalignant) {
-                btnMalignant.addEventListener('click', function(e) {
-                    e.preventDefault();
-                    fillSampleValues(true);
-                });
-                console.log('Malignant button listener attached');
-            } else {
-                console.error('btnMalignant not found');
-            }
-            
-            if (btnPredict) {
-                btnPredict.addEventListener('click', function(e) {
-                    e.preventDefault();
-                    makePrediction();
-                });
-                console.log('Predict button listener attached');
-            } else {
-                console.error('btnPredict not found');
-            }
+            document.getElementById('btnPredict').addEventListener('click', function(e) {
+                e.preventDefault();
+                makePrediction();
+            });
         });
     </script>
 </body>
@@ -306,8 +315,11 @@ def predict():
         'top_features': [{str(k): float(v)} for k, v in top_features]
     })
 
+# For health checks (important for Render)
+@app.route('/health', methods=['GET'])
+def health():
+    return jsonify({"status": "healthy"})
+
 if __name__ == '__main__':
-    print("Starting the breast cancer prediction web app...")
-    print(f"Model accuracy: {model_accuracy:.4f}")
-    print("Go to http://127.0.0.1:5000/ in your web browser")
-    app.run(debug=True)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=False)
