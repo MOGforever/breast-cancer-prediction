@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Breast Cancer Prediction</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1 {
+            color: #2c3e50;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input[type="number"] {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        button {
+            background-color: #3498db;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 4px;
+        }
+        .positive {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .negative {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .accuracy {
+            margin-top: 20px;
+            font-style: italic;
+            color: #6c757d;
+        }
+        #resultDiv {
+            display: none;
+        }
+        .importance {
+            margin-top: 10px;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+<body>
+    <h1>Breast Cancer Prediction</h1>
+    <p>Enter the following features to predict breast cancer risk. You can use sample values or enter your own measurements.</p>
+    
+    <button onclick="fillSampleValues()">Fill with Sample Benign Values</button>
+    <button onclick="fillSampleValues(true)">Fill with Sample Malignant Values</button>
+    
+    <form id="predictionForm">
+        <div id="featuresContainer">
+            <!-- Features will be added here dynamically -->
+        </div>
+        <button type="button" onclick="makePrediction()">Predict</button>
+    </form>
+    
+    <div id="resultDiv" class="result">
+        <h2>Prediction Result</h2>
+        <p id="resultText"></p>
+        <p id="resultExplanation"></p>
+        <div id="resultDetails"></div>
+    </div>
+    
+    <div class="accuracy">
+        <p>Model accuracy: {{ model_accuracy }}%</p>
+        <p>Model: Random Forest Classifier</p>
+    </div>
+    
+    <script>
+        // Feature names from Flask
+        const featureNames = JSON.parse('{{ feature_names | tojson | safe }}');
+        
+        // Sample values
+        const benignSample = [13.54, 14.36, 87.46, 566.3, 0.09779, 0.08129, 0.06664, 0.04781, 0.1885, 0.05766, 0.2699, 0.7886, 2.058, 23.56, 0.008462, 0.0146, 0.02387, 0.01315, 0.0198, 0.0023, 15.11, 19.26, 99.7, 711.2, 0.144, 0.1773, 0.239, 0.1288, 0.2977, 0.07259];
+        const malignantSample = [20.57, 17.77, 132.9, 1326, 0.08474, 0.07864, 0.0869, 0.07017, 0.1812, 0.05667, 0.5435, 0.7339, 3.398, 74.08, 0.005225, 0.01308, 0.0186, 0.0134, 0.01389, 0.003532, 24.99, 23.41, 158.8, 1956, 0.1238, 0.1866, 0.2416, 0.186, 0.275, 0.08902];
+        
+        // Create the form fields
+        window.onload = function() {
+            const container = document.getElementById('featuresContainer');
+            for (let i = 0; i < featureNames.length; i++) {
+                const displayName = featureNames[i].replace(/_/g, ' ');
+                const formGroup = document.createElement('div');
+                formGroup.className = 'form-group';
+                const label = document.createElement('label');
+                label.htmlFor = `feature_${i}`;
+                label.textContent = displayName;
+                const input = document.createElement('input');
+                input.type = 'number';
+                input.step = '0.0001';
+                input.id = `feature_${i}`;
+                input.name = `feature_${i}`;
+                input.required = true;
+                formGroup.appendChild(label);
+                formGroup.appendChild(input);
+                container.appendChild(formGroup);
+            }
+        };
+        
+        // Fill the form with sample values
+        function fillSampleValues(malignant = false) {
+            const values = malignant ? malignantSample : benignSample;
+            for (let i = 0; i < featureNames.length; i++) {
+                document.getElementById(`feature_${i}`).value = values[i];
+            }
+        }
+        
+        // Make prediction
+        function makePrediction() {
+            const features = [];
+            for (let i = 0; i < featureNames.length; i++) {
+                const value = document.getElementById(`feature_${i}`).value;
+                if (!value) {
+                    alert('Please fill all fields');
+                    return;
+                }
+                features.push(parseFloat(value));
+            }
+            
+            fetch('/predict', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ features: features })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    alert(data.error);
+                    return;
+                }
+                const resultDiv = document.getElementById('resultDiv');
+                const resultText = document.getElementById('resultText');
+                const resultExplanation = document.getElementById('resultExplanation');
+                const resultDetails = document.getElementById('resultDetails');
+                
+                resultDiv.style.display = 'block';
+                
+                if (data.prediction === 1) {
+                    resultDiv.className = 'result negative';
+                    resultText.textContent = 'Prediction: Benign (Non-cancerous)';
+                    resultExplanation.textContent = 'The model predicts that the tumor is benign. This suggests a lower risk.';
+                } else {
+                    resultDiv.className = 'result positive';
+                    resultText.textContent = 'Prediction: Malignant (Cancerous)';
+                    resultExplanation.textContent = 'The model predicts that the tumor is malignant. This suggests a higher risk.';
+                }
+                
+                // Add probability and feature importance
+                resultDetails.innerHTML = `
+                    <p>Confidence: ${(data.probability * 100).toFixed(2)}%</p>
+                    <div class="importance">
+                        <strong>Top contributing features:</strong>
+                        <ul>
+                            ${data.top_features.map(f => `<li>${f[0]}: ${(f[1] * 100).toFixed(2)}%</li>`).join('')}
+                        </ul>
+                    </div>
+                `;
+                
+                resultDiv.scrollIntoView({ behavior: 'smooth' });
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error making prediction. See console for details.');
+            });
+        }
+    </script>
+</body>
+</html>
